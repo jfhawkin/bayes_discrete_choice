@@ -1,0 +1,377 @@
+Codes for the paper: 
+"Foundations of Stated Preference Elicitation", 
+by Moshe Ben-Akiva, Daniel McFadden, and Kenneth Train 
+
+A. Stan code for the hierarchical models in the paper (hb.stan)
+// Note: Number of alternatives (4) hard coded
+
+data {
+  int<lower=0> K_u;            // Number of variables with uncorrelated coefs.
+  int<lower=0> K_c;            // Number of variables with correlated coefs.
+  int<lower=1> R;              // Number of respondents
+  int<lower=1> S;              // Number of choice sets per respondent
+  int<lower=1> N;              // Total number of choice sets observed
+  int<lower=1,upper=R> r[N];   // Respondent ID
+  int<lower=1,upper=S> y[N];   // Alternative selected
+  real x1_u[N];                // Variables with uncorrelated coefs for choice 1
+  real x2_u[N];                // Variables with uncorrelated coefs for choice 2
+  real x3_u[N];                // Variables with uncorrelated coefs for choice 3
+  real x4_u[N];                // Variables with uncorrelated coefs for choice 4
+  row_vector[K_c] x1_c[N];     // Variables with correlated coefs for choice 1
+  row_vector[K_c] x2_c[N];     // Variables with correlated coefs for choice 2
+  row_vector[K_c] x3_c[N];     // Variables with correlated coefs for choice 3
+  row_vector[K_c] x4_c[N];     // Variables with correlated coefs for choice 4
+}
+
+parameters {
+  vector[K_c] beta[R];                 // Correlated coefficients for each respondent
+  vector[K_c] mu_c;                    // Means of correlated coefficients
+  corr_matrix[K_c] Omega;              // Correlation matrix
+  vector<lower=0,upper=100>[K_c] tau;  // Variances of correlated coefficients
+  real<lower=0> alpha[R];              // Inv. of negative price coef. for each respondent
+  real mu_p;                           // Mean of alpha
+  real<lower=0,upper=100> sigma_p;     // Variance of alpha
+}
+
+model {
+  matrix[K_c,K_c] Sigma;
+  Sigma <- quad_form_diag(Omega,tau);  // Covariance matrix
+//                                     // Prior for tau flat on [0,100]
+//  tau ~ cauchy(0,2.5);               // Alternative prior for tau
+  Omega ~ lkj_corr(1);                 // Prior for Omega (correlation matrix)
+//                                     // Prior for var. of alpha flat on [0,100]
+  mu_c ~ normal(0, 100);               // Prior for mean non-price coefs.
+  mu_p ~ normal(0, 100);               // Prior for mean alpha
+
+  for (i in 1:R){                        // Respondent-specific draws
+    beta[i] ~ multi_normal(mu_c, Sigma); // Model for individual beta coefs.
+    alpha[i] ~ lognormal(mu_p, sigma_p); // Model for individual alpha coefs.
+  }
+
+  for (n in 1:N){
+    vector[4] p;                       // Choice probabilities
+    p[1] <- exp(-x1_u[n] / alpha[r[n]] + x1_c[n] * beta[r[n]] / alpha[r[n]]);
+    p[2] <- exp(-x2_u[n] / alpha[r[n]] + x2_c[n] * beta[r[n]] / alpha[r[n]]);
+    p[3] <- exp(-x3_u[n] / alpha[r[n]] + x3_c[n] * beta[r[n]] / alpha[r[n]]);
+    p[4] <- exp(-x4_u[n] / alpha[r[n]] + x4_c[n] * beta[r[n]] / alpha[r[n]]);
+    p <- p / sum(p);
+    y[n] ~ categorical(p);             // Model for choice
+  }
+}  
+B. R code to implement Stan estimation
+library(mlogit)
+library(rstan)
+
+##################################################
+### Load and organized data
+##################################################
+
+data <- read.csv("data/grapes_data.csv")
+data[, 1] <- NULL
+names(data) <- c("participant", "set", "alternative", "price", "is_sweet",
+  "is_crisp", "is_big", "is_organic", "is_sweet_crisp", "is_sweet_female",
+  "is_grapes", "is_female", "is_chosen", "utility_actual", "utility_expected",
+  "choice_prob")
+
+### Ensure order for later calculations
+data <- data[with(data, order(participant, set, alternative)), ]
+
+
+##################################################
+### Hierarchical Bayesian Estimation
+##################################################
+
+##############################
+### Set up data and models
+##############################
+
+### Need unique identifiers for each choice situation for 'mlogit'
+data$situation <- with(data, interaction(participant, set))
+
+data_ml <- mlogit.data(data, shape = "long", choice = "is_chosen",
+  alt.var = "alternative", chid.var = "situation", id.var = "participant")
+
+### Select variables for model; 'is_female' not identified
+variables <- c("price", grep("is_", names(data), value = TRUE))
+variables <- variables[!variables %in% c("is_chosen", "is_female")]
+
+### Create model formula
+model <- paste("is_chosen", "~", paste(variables, collapse = " + "), "- 1")
+model <- formula(model)
+
+
+##############################
+### HB tuning parameters
+##############################
+
+iter   <- 11000
+chains <- 1
+
+
+##############################
+### Organize data for Stan
+##############################
+
+### Price coefficient not correlated with others
+data_u <- model.matrix(~ price - 1, data = data)
+
+### Remaining coefficients
+data_c <- model.matrix(update(model, ~ . - price), data = data)
+
+### Separate the covariates by alternative
+x1_u <- data_u[data$alternative == 1L, ]
+x2_u <- data_u[data$alternative == 2L, ]
+x3_u <- data_u[data$alternative == 3L, ]
+x4_u <- data_u[data$alternative == 4L, ]
+
+x1_c <- data_c[data$alternative == 1L, , drop = FALSE]
+x2_c <- data_c[data$alternative == 2L, , drop = FALSE]
+x3_c <- data_c[data$alternative == 3L, , drop = FALSE]
+x4_c <- data_c[data$alternative == 4L, , drop = FALSE]
+
+### Constants
+### Assumes that all participants face same number of choice sets
+K_u <- ncol(data_u)    # Number of uncorrelated variables
+K_c <- ncol(data_c)    # Number of  correlated variables
+R   <- length(unique(data$participant)) # Number of participants
+N   <- nrow(x1_c)      # Number of choice sets * participants
+S   <- N/R             # Number of choice sets per person
+
+y   <- data[data$is_chosen == 1L, "alternative"]   # Alternative selected for each set
+r   <- data[data$alternative == 1L, "participant"] # Participant ID for each set
+
+### Variables passed to Stan
+vars_hb <- c(ls(pattern = "x[[:digit:]]_[uc]"), "K_u", "K_c", "R", "N", "S", "y", "r")
+
+
+##############################
+### Estimate model
+##############################
+
+model_hb <- stan(file = "hb.stan", data = vars_hb,
+  iter = iter, chains = chains)
+
+save(model_hb, file = "results/hb-11000.RData")
+
+C. R code for the table grape simulated CBC study
+
+N <- 1000 # Number of subjects
+M <- 8    # Number of choice scenarios
+# J <- 4  # Number of alternatives; Hard coded
+
+# R session to create Monte Carlo example of table grape CBC
+#  indices
+  #  subject (n)
+  #  menu (m)
+  #  alternative (j)
+#  factors
+  #  price (P), in dollars/bunch from $1.00 to $4.00
+  #  Sweetness (S), levels S = 0 for tart, S = 1 for sweet
+  #  Chrispness (C), levels C = 0 for solt, C = 1 for crisp
+  #  Size (L), levels L = 0 for small, L = 1 for large
+  #  Organic (O), levels O = 1 if yes, O = 0 if no
+  #  Sweetness*Crispness interaction (SC), levels S*C
+  #  Sweetness*Gender interaction (SG), levels S*G, where G = 1 if female, G = 0 if male
+  #  bunch-specific dummy (q)
+#  other variables
+  #  Gender (G): G = 1 if female, G = 0 if male
+  #  Choice (D): D = 1 if stated choice, D = 0 otherwise
+  #  Realized utility (U)
+  #  Expected utility (V)
+  #  Choice probabilities (PR)
+#
+varname <- c("n","m","j","P","S","C","L","O","SC","SG","q","G","D","U","V","PR")     #  variable mneumonics
+#
+#  the coefficient on price is normalized to -1
+# taste parameters are for the remaining 7 factors, in the order above, plus the disturbance scale factor
+parname <- c("bS","bC","bL","bO","bSC","bSG","bq","lnalpha")        #  parameter mneumonics
+mu <- matrix(c(1.0,0.3,0.2,0.1,0.00,0.1,2.0,-0.5),8,1)              #  true taste means
+std <- matrix(c(0.3,0.1,0.1,0.2,0.05,0.2,1.0,0.3),8,1)              #  true taste standare devs.
+cho <- matrix(c(1.0,0.6,0.0,0.0,0.30,0.0,0.0,0.0),8,1)              #  true taste Cholesky factor correl matrix
+cho <- cbind(cho,matrix(c(0.0,0.8,0.6,0.0,0.30,0.0,0.0,0.0),8,1))
+cho <- cbind(cho,matrix(c(0.0,0.0,0.8,0.0,0.30,0.0,0.0,0.0),8,1))
+cho <- cbind(cho,matrix(c(0.0,0.0,0.0,1.0,0.30,0.0,0.0,0.0),8,1))
+cho <- cbind(cho,matrix(c(0.0,0.0,0.0,0.0,0.80,0.0,0.0,0.0),8,1))
+cho <- cbind(cho,matrix(c(0.0,0.0,0.0,0.0,0.00,1.0,0.0,0.0),8,1))
+cho <- cbind(cho,matrix(c(0.0,0.0,0.0,0.0,0.00,0.0,1.0,0.0),8,1))
+cho <- cbind(cho,matrix(c(0.0,0.0,0.0,0.0,0.00,0.0,0.0,1.0),8,1))
+theta0 <- cbind(mu,std,cho)                                          #  true deep parameters
+#  initialize
+coeff <- matrix(0,8,N)                                            # array of subject taste coefficients
+set.seed(1937)
+#
+for (n in 1:N) {
+  coeff[,n] <- mu + std*cho %*% matrix(rnorm(8),8,1)                 # individual true parameters
+  }
+#
+dta <- function(i,k) {
+  x <- matrix(0,4,16)
+  x[,1] <- i
+  x[,2] <- k
+  x[,3] <- c(1,2,3,4)
+  x[1:3,4] <- 1 + 3*round(runif(3),digits=2)                            # P
+  x[1:3,5:8] <- ifelse(runif(12) > 0.5,1,0)                             # S,C,L,O
+  x[1:3,9] <- x[1:3,5]*x[1:3,6]                                         # SC
+  x[1:3,10] <- g*x[1:3,5]                                               # SG
+  x[1:3,11] <- 1                                                        # q
+  x[,12] <- g                                                           # g
+  x[,15] <- (-x[,4] + x[,5:11] %*% coeff[1:7,i])                        # V
+  x[,14] <- x[,15] + exp(coeff[8,i])*matrix(-log(-log(runif(4))),4,1)   # U
+  u <- max(x[,14])
+  x[,13] <- ifelse(x[,14] == u,1,0)                                     # D
+  s <- exp(x[,15]/exp(coeff[8,i]))
+  x[,16] <- s/sum(s)                                                    # PR
+  return(x)
+  }
+#
+X <- NULL
+#
+for (n in 1:N) {
+  g <- ifelse(runif(1) > 0.5,1,0)
+  for (m in 1:M)    {
+    X <- rbind(X,dta(n,m))
+  }
+}
+
+coeff <- t(coeff)
+population <- data.frame(mu = colMeans(coeff), sd = apply(coeff, 2, sd))
+population <- cbind(population, cor(coeff))
+
+write.csv(X,file = "data/grapes_data.csv")
+write.csv(varname,file = "data/grapes_data_names.csv")
+write.csv(theta0,file="results/theta0.csv")
+write.csv(population, file = "results/population.csv")
+# Welfare calculations on synthetic population
+     N <- 10000 # Number of subjects
+     M <- 3    # Number of choice scenarios
+     # J <- 4  # Number of alternatives; Hard coded
+     
+     # initialize
+     coeff <- matrix(0,8,N)           # array of subject taste coefficients
+     set.seed(1937)
+     #
+     for (n in 1:N) {
+       coeff[,n] <- mu + std*cho %*% matrix(rnorm(8),8,1) # individual true parameters
+       }
+     
+      
+     # scenario for bunches j = 2,3
+     xx2 <- matrix(c(3.50,1,1,1,0,1,1,1),1,8)
+     xx3 <- matrix(c(3.00,0,0,0,0,0,0,1),1,8)
+     
+     dtb <- function(i) {
+       x <- matrix(0,12,16)
+       x[,1] <- i
+       x[,2] <- c(1,1,1,1,2,2,2,2,3,3,3,3)
+       x[,3] <- c(1,2,3,4,1,2,3,4,1,2,3,4)
+       x[1,4:11] <- matrix(c(4.00,1,1,0,1,1,1,1),1,8)
+       x[2,4:11] <- xx2
+       x[3,4:11] <- xx3
+       x[5,4:11] <- matrix(c(3.75,1,1,0,1,1,1,1),1,8)
+       x[6,4:11] <- xx2
+       x[7,4:11] <- xx3
+       x[9,4:11] <- matrix(c(4.00,1,1,0,0,1,1,1),1,8)
+       x[10,4:11] <- xx2
+       x[11,4:11] <- xx3                    
+       x[,10] <- x[,10]*g
+       x[,12] <- g                                        # g
+       x[,15] <- (-x[,4] + x[,5:11] %*% coeff[1:7,i])     # V
+       s <- matrix(exp(x[,15]/exp(coeff[8,i])),12,1)
+       sm <- s
+       sm[1:4,1] <- sum(s[1:4,1])
+       sm[5:8,1] <- sum(s[5:8,1])
+       sm[9:12,1] <- sum(s[9:12,1])
+       x[,14] <- exp(coeff[8,i])*log(sm)             # EU
+       x[,16] <- s/sm                                # PR
+       return(x)
+       }
+     #
+     # calculate demands and compensating variations
+     
+     Dmdt <- matrix(0,4,3)
+     Dmdf <- matrix(0,4,3)
+     Dmdm <- matrix(0,4,3)
+     
+     cv <- matrix(0,3,3)
+     W <- matrix(0,12,16)
+     
+     for (n in 1:N) {
+       g <- ifelse(n<=0.7*N,1,0)
+       W <- dtb(n)
+         W1 <- matrix(W[1:4,16],4,1)
+         W2 <- matrix(W[5:8,16],4,1)
+         W3 <- matrix(W[9:12,16],4,1)
+         WW <- cbind(W1,W2,W3)
+     # columns of W: "n","m","j","P","S","C","L","O","SC","SG","q","G","D","U","V","PR"
+         cv[1,1] <- cv[1,1] + W[5,14]-W[1,14]
+         cv[1,2] <- cv[1,2] + (W[5,14]-W[1,14])*g
+         cv[1,3] <- cv[1,3] + (W[5,14]-W[1,14])*(1-g)
+         # scenario 3a 
+         cv[2,1] <- cv[2,1] + max(0,(W[1,15]-W[9,15])*W[1,16])                   
+         cv[2,2] <- cv[2,2] + max(0,(W[1,15]-W[9,15])*W[1,16])*g
+         cv[2,3] <- cv[2,3] + max(0,(W[1,15]-W[9,15])*W[1,16])*(1-g)
+         # scenario 3b 
+         cv[3,1] <- cv[3,1] + max(0,(W[1,15]-W[9,15])*W[1,16]+W[9,14]-W[1,14]) 
+         cv[3,2] <- cv[3,2] + max(0,(W[1,15]-W[9,15])*W[1,16]+W[9,14]-W[1,14])*g
+         cv[3,3] <- cv[3,3] + max(0,(W[1,15]-W[9,15])*W[1,16]+W[9,14]-W[1,14])*(1-g)
+         
+         Dmdt <- Dmdt + WW
+         Dmdf <- Dmdf + g*WW
+         Dmdm <- Dmdm + (1-g)*WW
+         }
+     
+     #  demand in synthetic population, row = product, col = scenario
+     Dmdt
+     Dmdf
+     Dmdm
+     
+     D1t <- c(Dmdt[,1])
+     D2t <- c(Dmdt[,2])
+     D3t <- c(Dmdt[,3])
+     D1f <- c(Dmdf[,1])
+     D2f <- c(Dmdf[,2])
+     D3f <- c(Dmdf[,3])
+     D1m <- c(Dmdm[,1])
+     D2m <- c(Dmdm[,2])
+     D3m <- c(Dmdm[,3])
+     
+     #  demand elasticities
+     c(-16,-16,-16,-16)*(D2t-D1t)/D1t
+     c(-16,-16,-16,-16)*(D2f-D1f)/D1f
+     c(-16,-16,-16,-16)*(D2m-D1m)/D1m
+     
+     #  trapezoid approximation to total compensating variation
+     CV1t <- .125*c(Dmdt[1,2] + Dmdt[1,1])
+     CV1f <- .125*c(Dmdf[1,2] + Dmdf[1,1])
+     CV1m <- .125*c(Dmdm[1,2] + Dmdm[1,1])
+     c(CV1t,CV1f,CV1m)
+     
+     # total compensating variation 
+     cv
+     
+
+The correlation matrix in Table 5 comes from the Cholesky factor matrix:
+
+ 1  0  0  0  0  0  0  0
+.6 .8  0  0  0  0  0  0
+ 0 .6 .8  0  0  0  0  0
+ 0  0  0  1  0  0  0  0
+.3 .3 .3 .3 .8  0  0  0
+ 0  0  0  0  0  1  0  0
+ 0  0  0  0  0  0  1  0
+ 0  0  0  0  0  0  0  1
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
