@@ -11,7 +11,7 @@ C = 59  # Number of data columns
 K = 5    # Number of alternatives in each choice task
 T = 5    # Number of alternatives by number of choice tasks
 PR = 4 # One for each random parameter
-PF = 7 # Number of alternatives/ASC 
+PF = 7 # Number of fixed parameters
 P = PR + PF # Total number of covariates
 IT = I*T # Number of individuals x number of tasks
 
