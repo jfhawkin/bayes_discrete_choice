@@ -61,8 +61,8 @@ apollo_fixed = c("asc_sm")
 apollo_HB = list(
   hbDist      = c(b_tt="LN-", b_tc="F", asc_train="F",
                   asc_car="F", asc_sm="F"),
-  gNCREP      = 2000, 
-  gNEREP      = 2000, 
+  gNCREP      = 1000, 
+  gNEREP      = 1000, 
   gINFOSKIP   = 250,
   gFULLCV     = FALSE,
   nodiagnostics = TRUE
@@ -129,4 +129,9 @@ end_est <- Sys.time()
 
 tot_est <- end_est - start_est
 
-ESS = ess(model$A[,2])
+samples = cbind(model$A,model$F)
+dim(samples) = c(nrow(samples),1,ncol(samples))
+stan_results = monitor(samples,
+                       warmup = 0,
+                       probs = c(0.025, 0.25, 0.5, 0.75, 0.975),
+                       digits_summary = 5)

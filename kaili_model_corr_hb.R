@@ -5,6 +5,8 @@
 ### Clear memory
 rm(list = ls())
 
+start_est <- Sys.time()
+
 ### Load Apollo library
 library(apollo)
 library(mcmcse)
@@ -104,17 +106,17 @@ apollo_HB = list(
 				  as_mile44="N", pca_mile44="N", as_mileunl="N", 
 				  pca_mileunl="N"
 				  ),
-  gNCREP      = 2000, 
-  gNEREP      = 2000, 
+  gNCREP      = 1000, 
+  gNEREP      = 1000, 
   gINFOSKIP   = 250,
   gFULLCV     = FALSE,
   hIW         = TRUE,
-  pvMatrix    = cvMat, # Use same starting prior as Stan, N(0,5) and correlated ASC
+  pvMatrix    = cvMat,
   nodiagnostics = TRUE
 )
 
 # ################################################################# #
-#### GROUP AND VALIDATE INPUTS                                   ####
+#### GROUP AND VALIdatabaseE INPUTS                                   ####
 # ################################################################# #
 
 apollo_inputs = apollo_validateInputs()
@@ -160,7 +162,6 @@ apollo_probabilities=function(apollo_beta, apollo_inputs, functionality="estimat
 #### MODEL ESTIMATION                                            ####
 # ################################################################# #
 
-start_est <- Sys.time()
 model = apollo_estimate(apollo_beta, apollo_fixed, apollo_probabilities, apollo_inputs)
 
 # ################################################################# #
@@ -175,4 +176,9 @@ end_est <- Sys.time()
 
 tot_est <- end_est - start_est
 
-ESS = ess(model$A)
+samples = cbind(model$A,model$F)
+dim(samples) = c(nrow(samples),1,ncol(samples))
+stan_results = monitor(samples,
+                       warmup = 0,
+                       probs = c(0.025, 0.25, 0.5, 0.75, 0.975),
+                       digits_summary = 5)

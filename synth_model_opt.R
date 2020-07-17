@@ -36,16 +36,15 @@ data_list = list(I = I,
 )
 
 # Compile the model
-compiled_model = stan_model("synth_model_demeaned.stan")
+compiled_model = stan_model("synth_model.stan")
+
+start_est <- Sys.time()
 
 # Fit the model
-model_fit = sampling(compiled_model, data = data_list, init=0, iter = 50000, chains=1)
+model_opt = optimizing(compiled_model, init=0, , data = data_list)
 
-# sampler_params = get_sampler_params(model_fit, inc_warmup = TRUE)
-# summary(do.call(rbind, sampler_params), digits = 2)
-# print(model_fit)
-# 
-# summary(model_fit, pars = c("gamma"))$summary
-# summary(model_fit, pars = c("lp__"))$summary
+print(model_opt)
 
-monitor(extract(model_fit, pars= c('betan','gamma','L_Omega','tau'), include=TRUE),digits_summary = 5)
+end_est <- Sys.time()
+
+tot_est <- end_est - start_est

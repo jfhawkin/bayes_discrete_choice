@@ -55,12 +55,4 @@ data_list <- list(N = N,
 compiled_model <- stan_model("swiss_metro.stan")
 
 # Fit the model
-model_fit <- sampling(compiled_model, data = data_list, iter = 2000, cores=4, chains=4)
-
-sampler_params <- get_sampler_params(model_fit, inc_warmup = TRUE)
-summary(do.call(rbind, sampler_params), digits = 2)
-print(model_fit)
-
-end_est <- Sys.time()
-
-tot_est <- end_est - start_est
+model_fit <- sampling(compiled_model, data = data_list, iter = 2000, chains=1)

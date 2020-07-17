@@ -11,7 +11,7 @@ C = 424  # Number of data columns
 K = 4    # Number of alternatives in each choice task
 T = 8    # Number of alternatives by number of choice tasks
 PN = 52 # One for each parameter
-ASC = 3 # Number of ASC 
+ASC = 3 # Number of alternatives/ASC 
 P = ASC + PN # Total number of covariates
 
 X = data.matrix(dat)
@@ -118,9 +118,9 @@ data_list = list(I = I,
 compiled_model = stan_model("kaili_model_corr.stan")
 
 # Fit the model
-model_fit = sampling(compiled_model, data = data_list, iter = 2000, chains=4)
+model_fit = sampling(compiled_model, data = data_list, iter = 2000, chains=1)
 
+model_fit@stanmodel@dso <- new("cxxdso")
+saveRDS(model_fit, file = "fit.rds")
 
-sampler_params = get_sampler_params(model_fit, inc_warmup = TRUE)
-summary(do.call(rbind, sampler_params), digits = 2)
-print(model_fit)
+# fit1 <- readRDS("fit1.rds")

@@ -36,16 +36,24 @@ data_list = list(I = I,
 )
 
 # Compile the model
-compiled_model = stan_model("synth_model_demeaned.stan")
+compiled_model = stan_model("synth_model.stan")
+
+start_est <- Sys.time()
+initf <- function() {
+  # Fit the model with vb
+  model_vi = vb(compiled_model, data = data_list, algorithm='meanfield')
+  list(betan = as.list(get_posterior_mean(model_vi, pars=c('betan'))), z = as.list(get_posterior_mean(model_vi, pars=c('z'))), tau_unif=as.list(get_posterior_mean(model_vi, pars=c('tau_unif'))), L_Omega=as.list(get_posterior_mean(model_vi, pars=c('L_Omega'))), gamma=as.list(get_posterior_mean(model_vi, pars=c('gamma'))))
+}
 
 # Fit the model
-model_fit = sampling(compiled_model, data = data_list, init=0, iter = 50000, chains=1)
+model_fit = sampling(compiled_model, data = data_list, init=initf, iter = 2000, chains=1)
+
+end_est <- Sys.time()
+
+tot_est <- end_est - start_est
 
 # sampler_params = get_sampler_params(model_fit, inc_warmup = TRUE)
 # summary(do.call(rbind, sampler_params), digits = 2)
-# print(model_fit)
-# 
-# summary(model_fit, pars = c("gamma"))$summary
-# summary(model_fit, pars = c("lp__"))$summary
+print(model_fit)
 
 monitor(extract(model_fit, pars= c('betan','gamma','L_Omega','tau'), include=TRUE),digits_summary = 5)

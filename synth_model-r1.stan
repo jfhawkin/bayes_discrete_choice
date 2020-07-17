@@ -17,14 +17,12 @@ data {
 parameters {
   vector[PF] betan; // hypermeans of the part-worths for fixed parameters with normal priors
   matrix[PR, I] z; // individual random effects (unscaled) (standardized component) for random parameters
-  vector<lower=0,upper=pi()/2>[PR] tau_unif; // prior scale
+  vector<lower=0>[PR] tau; // prior scale
   cholesky_factor_corr[PR] L_Omega; // prior correlation
   vector[PR] gamma; // random coeffs
 }
 transformed parameters {
-  vector<lower=0>[PR] tau;     // prior scale
   matrix[I, PR] beta_ind;
-  for (k in 1:PR) tau[k] = 2.5 * tan(tau_unif[k]);
   beta_ind = rep_matrix(gamma', I) + (diag_pre_multiply(tau,L_Omega) * z)';
 }
 
@@ -32,14 +30,14 @@ model {
   // create a temporary holding vector
   vector[I*T] log_prob; // we will add the log_prob for each scenario and pass it as a single vector to the posterior estimation engine
   vector[K] utils; // vector of utilities for each alternative
-  int ind=1; // individual id for a given IT to translate to individual-level heterogeneity for multi-task dataset
   row_vector[K] ones = rep_row_vector(1, K);
   
   // priors on the parameters
+  tau ~ normal(0, 2);
   to_vector(z) ~ std_normal();
-  betan ~ normal(0, 5);
+  betan ~ normal(0, 2);
   L_Omega ~ lkj_corr_cholesky(2);
-  to_vector(gamma) ~ normal(0, 5);
+  to_vector(gamma) ~ normal(0, 2);
 
   // log probabilities of each choice in the dataset
   for(i in 1:IT) {

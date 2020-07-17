@@ -1,18 +1,20 @@
 library(rstan) # observe startup messages
 library(dplyr)
+library(dummies)
 rstan_options(auto_write = TRUE)
-options(mc.cores = parallel::detectCores())
 
 dat = read.csv('https://raw.githubusercontent.com/jfhawkin/bayes_discrete_choice/master/xmatswave2019.csv',header = FALSE)
+# dat = cbind(dat, dummy(dat$ALT, sep = "_"))
 
 # We have 8 tasks per individual for 184 individuals comparing 4 alternatives
 I = 184  # Number of individuals
 C = 424  # Number of data columns
 K = 4    # Number of alternatives in each choice task
 T = 8    # Number of alternatives by number of choice tasks
-PN = 52   # One each for ASC, automation level
-ASC = 3 # Number of alternatives/ASC 
-P = ASC + PN # Total number of covariates
+PN = 5   # One each for ASC, automation level
+PLN = 1 # One each for monthly mileage
+PNLN = 5 # remaining variables
+P = PN + PLN + PNLN # Total number of covariates
 
 X = data.matrix(dat)
 
@@ -108,14 +110,19 @@ data_list = list(I = I,
                  K = K,
                  T = T,
                  PN = PN,
-                 ASC = ASC,
+                 PLN = PLN,
+                 PNLN = PNLN,
                  P = P,
                  X = X,
                  choice = choice
 )
 
 # Compile the model
-compiled_model = stan_model("kaili_model_simple.stan")
+compiled_model = stan_model("kaili_all_rand.stan")
 
 # Fit the model
-model_fit = sampling(compiled_model, data = data_list, iter = 2000, chains=1)
+model_fit = sampling(compiled_model, data = data_list, iter = 2000, cores=4, chains=4)
+
+sampler_params = get_sampler_params(model_fit, inc_warmup = TRUE)
+summary(do.call(rbind, sampler_params), digits = 2)
+print(model_fit)

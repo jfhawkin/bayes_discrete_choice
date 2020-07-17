@@ -11,6 +11,7 @@ start_tot <- Sys.time()
 library(apollo)
 library(mcmcse)
 library(dplyr)
+library(rstan)
 
 ### Initialise code
 apollo_initialise()
@@ -123,9 +124,9 @@ model = apollo_estimate(apollo_beta, apollo_fixed, apollo_probabilities, apollo_
 # ----------------------------------------------------------------- #
 apollo_modelOutput(model)
 
-end_est <- Sys.time()
-
-tot_est <- end_est - start_est
-tot_tot <- end_est - start_tot
-
-ESS = ess(model$A)
+samples = cbind(model$A,model$F)
+dim(samples) = c(nrow(samples),1,ncol(samples))
+stan_results = monitor(samples,
+                       warmup = 0,
+                       probs = c(0.025, 0.25, 0.5, 0.75, 0.975),
+                       digits_summary = 5)

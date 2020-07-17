@@ -5,6 +5,8 @@
 ### Clear memory
 rm(list = ls())
 
+start_est <- Sys.time()
+
 ### Load Apollo library
 library(apollo)
 library(mcmcse)
@@ -16,7 +18,7 @@ apollo_initialise()
 ### Set core controls
 apollo_control = list(
   modelName ="KailiHB",
-  modelDescr ="Mixed logit model on Kaili ownership choice databasea, uncorrelated normals in utility space - HB",
+  modelDescr ="Mixed logit model on Kaili ownership choice databasea, uncorrelated Lognormals in utility space - HB",
   indivID   = "X1",  
   HB         = TRUE,
   nCores    = 4
@@ -96,17 +98,19 @@ apollo_HB = list(
 				  as_mile44="N", pca_mile44="N", as_mileunl="N", 
 				  pca_mileunl="N"
 				  ),
-  gNCREP      = 2000, 
-  gNEREP      = 2000, 
+  gNCREP      = 1000, 
+  gNEREP      = 1000, 
   gINFOSKIP   = 250,
   gFULLCV     = FALSE,
   hIW         = TRUE,
-  priorVariance = 5, # Use same starting prior as Stan, N(0,5)
+  priorVariance = 5,
   nodiagnostics = TRUE
 )
 
+# pvMatrix = 5 on diagonal and 0 off
+
 # ################################################################# #
-#### GROUP AND VALIDATE INPUTS                                   ####
+#### GROUP AND VALIdatabaseE INPUTS                                   ####
 # ################################################################# #
 
 apollo_inputs = apollo_validateInputs()
@@ -151,7 +155,6 @@ apollo_probabilities=function(apollo_beta, apollo_inputs, functionality="estimat
 # ################################################################# #
 #### MODEL ESTIMATION                                            ####
 # ################################################################# #
-start_est <- Sys.time()
 
 model = apollo_estimate(apollo_beta, apollo_fixed, apollo_probabilities, apollo_inputs)
 
@@ -167,4 +170,9 @@ end_est <- Sys.time()
 
 tot_est <- end_est - start_est
 
-ESS = ess(model$A)
+samples = cbind(model$A,model$F)
+dim(samples) = c(nrow(samples),1,ncol(samples))
+stan_results = monitor(samples,
+                       warmup = 0,
+                       probs = c(0.025, 0.25, 0.5, 0.75, 0.975),
+                       digits_summary = 5)
